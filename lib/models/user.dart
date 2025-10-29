@@ -1,33 +1,37 @@
-enum UserRole { waiter, admin , chef }
+enum UserRole { waiter, admin, chef }
 
 class AppUser {
-  final String id;      // Firebase UID
+  final String id;
   final String email;
-  final String password; // Chỉ dùng khi đăng ký hoặc đăng nhập
+  final String password;
   final UserRole role;
+  final String? displayName;
 
-  AppUser({
+  const AppUser({
     required this.id,
     required this.email,
     required this.role,
     required this.password,
+    this.displayName,
   });
 
-  factory AppUser.fromMap(String id, Map<String, dynamic> map) {
+  bool get isAdmin => role == UserRole.admin;
+
+  factory AppUser.fromDoc(String id, Map<String, dynamic> m) {
+    final roleStr = (m['role'] ?? 'waiter').toString().toLowerCase().trim();
+    final role = switch (roleStr) {
+      'admin' => UserRole.admin,
+      'chef'  => UserRole.chef,
+      _       => UserRole.waiter,
+    };
     return AppUser(
       id: id,
-      email: map['email'] as String,
-      role: (map['role'] as String) == 'admin' ? UserRole.admin : UserRole.waiter,
-      password: map['password'] as String,
+      email: (m['email'] ?? '') as String,
+      displayName: m['displayName'] as String?,
+      role: role,
+      password: (m['password'] ?? '') as String,
     );
   }
-
-  Map<String, dynamic> toMap() => {
-    'email': email,
-    'role': role == UserRole.admin ? 'admin' : 'waiter',
-  };
-  bool isAdmin() {
-    return role == UserRole.admin;
-  }
 }
+
 

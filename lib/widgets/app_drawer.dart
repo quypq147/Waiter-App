@@ -23,7 +23,7 @@ class AppDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final repo = InheritedApp.of(context);
     final user = repo.currentUser;
-    final isAdmin = (user?.isAdmin() == true); // hợp với model hiện tại của bạn
+    final isAdmin = (user?.isAdmin == true); // hợp với model hiện tại của bạn
 
     return Drawer(
       child: SafeArea(
@@ -44,18 +44,6 @@ class AppDrawer extends StatelessWidget {
               icon: Icons.table_bar,
               label: 'Chọn bàn',
               route: '/select_table',
-            ),
-            _waiterItem(
-              context,
-              icon: Icons.restaurant,
-              label: 'Menu',
-              route: '/menu',
-            ),
-            _waiterItem(
-              context,
-              icon: Icons.shopping_cart,
-              label: 'Giỏ hàng',
-              route: '/cart',
             ),
             _waiterItem(
               context,
@@ -96,7 +84,6 @@ class AppDrawer extends StatelessWidget {
               onTap: () async {
                 final repo = InheritedApp.of(context);
                 await repo.logout();
-
                 if (!context.mounted) return;
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const AuthGate()),

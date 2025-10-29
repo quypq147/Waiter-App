@@ -1,12 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:meta/meta.dart';
 
-enum OrderStatus {
-  open,    // đã seat, đang thêm món
-  billed,  // đã xin tính tiền
-  paid,    // đã thanh toán
-  voided,  // huỷ
-}
+enum OrderStatus { open, billed, paid, voided }
 
 @immutable
 class OrderModel {
@@ -15,13 +10,14 @@ class OrderModel {
   final String waiterId;
   final OrderStatus status;
 
-  final int? covers; // số khách
+  final int itemsCount;
+  final int covers;
+
   final double subtotal;
   final double discount;
   final double serviceCharge;
   final double tax;
   final double total;
-  final int itemsCount;
 
   final DateTime? openedAt;
   final DateTime? updatedAt;
@@ -32,125 +28,110 @@ class OrderModel {
     required this.tableId,
     required this.waiterId,
     required this.status,
-    required this.subtotal,
-    required this.discount,
-    required this.serviceCharge,
-    required this.tax,
-    required this.total,
-    required this.itemsCount,
-    this.covers,
+    this.itemsCount = 0,
+    this.covers = 0,
+    this.subtotal = 0,
+    this.discount = 0,
+    this.serviceCharge = 0,
+    this.tax = 0,
+    this.total = 0,
     this.openedAt,
     this.updatedAt,
     this.closedAt,
   });
 
-  OrderModel copyWith({
-    String? id,
-    String? tableId,
-    String? waiterId,
-    OrderStatus? status,
-    int? covers,
-    double? subtotal,
-    double? discount,
-    double? serviceCharge,
-    double? tax,
-    double? total,
-    int? itemsCount,
-    DateTime? openedAt,
-    DateTime? updatedAt,
-    DateTime? closedAt,
-  }) {
+  factory OrderModel.fromMap(Map<String, dynamic> map) {
+    DateTime? ts(v) => v is Timestamp ? v.toDate() : (v is DateTime ? v : null);
+    double d(v) => v == null ? 0 : (v is int ? v.toDouble() : (v as num).toDouble());
+
     return OrderModel(
-      id: id ?? this.id,
-      tableId: tableId ?? this.tableId,
-      waiterId: waiterId ?? this.waiterId,
-      status: status ?? this.status,
-      covers: covers ?? this.covers,
-      subtotal: subtotal ?? this.subtotal,
-      discount: discount ?? this.discount,
-      serviceCharge: serviceCharge ?? this.serviceCharge,
-      tax: tax ?? this.tax,
-      total: total ?? this.total,
-      itemsCount: itemsCount ?? this.itemsCount,
-      openedAt: openedAt ?? this.openedAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-      closedAt: closedAt ?? this.closedAt,
-    );
-  }
-
-  static OrderStatus _parseStatus(String? s) {
-    switch ((s ?? '').toLowerCase()) {
-      case 'billed':
-        return OrderStatus.billed;
-      case 'paid':
-        return OrderStatus.paid;
-      case 'void':
-      case 'voided':
-        return OrderStatus.voided;
-      case 'open':
-      default:
-        return OrderStatus.open;
-    }
-  }
-
-  static String statusToString(OrderStatus st) {
-    switch (st) {
-      case OrderStatus.billed:
-        return 'billed';
-      case OrderStatus.paid:
-        return 'paid';
-      case OrderStatus.voided:
-        return 'void';
-      case OrderStatus.open:
-      return 'open';
-    }
-  }
-
-  static DateTime? _ts(dynamic v) {
-    if (v == null) return null;
-    if (v is Timestamp) return v.toDate();
-    if (v is DateTime) return v;
-    return null;
-  }
-
-  factory OrderModel.fromMap(String id, Map<String, dynamic>? map) {
-    final data = map ?? const {};
-    return OrderModel(
-      id: id,
-      tableId: (data['tableId'] ?? '') as String,
-      waiterId: (data['waiterId'] ?? '') as String,
-      status: _parseStatus(data['status'] as String?),
-      covers: data['covers'] is int ? data['covers'] as int : (data['covers'] == null ? null : int.tryParse('${data['covers']}')),
-      subtotal: (data['subtotal'] ?? 0).toDouble(),
-      discount: (data['discount'] ?? 0).toDouble(),
-      serviceCharge: (data['serviceCharge'] ?? 0).toDouble(),
-      tax: (data['tax'] ?? 0).toDouble(),
-      total: (data['total'] ?? 0).toDouble(),
-      itemsCount: (data['itemsCount'] ?? 0) as int,
-      openedAt: _ts(data['openedAt']),
-      updatedAt: _ts(data['updatedAt']),
-      closedAt: _ts(data['closedAt']),
+      id: map['id']?.toString() ?? '',
+      tableId: map['tableId']?.toString() ?? '',
+      waiterId: map['waiterId']?.toString() ?? '',
+      status: _parseStatus(map['status']?.toString()),
+      itemsCount: (map['itemsCount'] as int?) ?? 0,
+      covers: (map['covers'] as int?) ?? 0,
+      subtotal: d(map['subtotal']),
+      discount: d(map['discount']),
+      serviceCharge: d(map['serviceCharge']),
+      tax: d(map['tax']),
+      total: d(map['total']),
+      openedAt: ts(map['openedAt']),
+      updatedAt: ts(map['updatedAt']),
+      closedAt: ts(map['closedAt']),
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'tableId': tableId,
       'waiterId': waiterId,
-      'status': statusToString(status),
+      'status': _statusToString(status),
+      'itemsCount': itemsCount,
       'covers': covers,
       'subtotal': subtotal,
       'discount': discount,
       'serviceCharge': serviceCharge,
       'tax': tax,
       'total': total,
-      'itemsCount': itemsCount,
-      'openedAt': openedAt,
-      'updatedAt': updatedAt,
-      'closedAt': closedAt,
+      'openedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (closedAt != null) 'closedAt': Timestamp.fromDate(closedAt!),
     };
   }
+
+  static OrderStatus _parseStatus(String? s) {
+    switch ((s ?? '').toLowerCase()) {
+      case 'open': return OrderStatus.open;
+      case 'billed': return OrderStatus.billed;
+      case 'paid': return OrderStatus.paid;
+      case 'voided': return OrderStatus.voided;
+      default: return OrderStatus.open;
+    }
+  }
+
+  static String _statusToString(OrderStatus st) {
+    switch (st) {
+      case OrderStatus.open: return 'open';
+      case OrderStatus.billed: return 'billed';
+      case OrderStatus.paid: return 'paid';
+      case OrderStatus.voided: return 'voided';
+    }
+  }
+
+  OrderModel copyWith({
+    OrderStatus? status,
+    int? itemsCount,
+    int? covers,
+    double? subtotal,
+    double? discount,
+    double? serviceCharge,
+    double? tax,
+    double? total,
+    DateTime? openedAt,
+    DateTime? updatedAt,
+    DateTime? closedAt,
+  }) {
+    return OrderModel(
+      id: id,
+      tableId: tableId,
+      waiterId: waiterId,
+      status: status ?? this.status,
+      itemsCount: itemsCount ?? this.itemsCount,
+      covers: covers ?? this.covers,
+      subtotal: subtotal ?? this.subtotal,
+      discount: discount ?? this.discount,
+      serviceCharge: serviceCharge ?? this.serviceCharge,
+      tax: tax ?? this.tax,
+      total: total ?? this.total,
+      openedAt: openedAt ?? this.openedAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      closedAt: closedAt ?? this.closedAt,
+    );
+  }
 }
+
 
 
 

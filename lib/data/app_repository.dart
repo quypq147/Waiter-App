@@ -20,7 +20,8 @@ class AppRepository extends ChangeNotifier {
     : _rid = restaurantId ?? 'default_restaurant' {
     _init();
   }
-
+  bool _profileLoaded = false;
+  bool get isProfileLoaded => _profileLoaded;
   // ---- Firebase
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
@@ -80,9 +81,11 @@ class AppRepository extends ChangeNotifier {
   // ===================================================================
   Future<void> _init() async {
     // 1) Auth state
+
     _authSub = _auth.authStateChanges().listen((u) async {
       if (u == null) {
         _currentUser = null;
+        _profileLoaded = true;
         _selectedTableId = null;
         _activeOrderId = null;
         _cart.clear();
@@ -90,25 +93,42 @@ class AppRepository extends ChangeNotifier {
         return;
       }
 
-      String roleStr = 'waiter';
-      try {
-        final userDoc = await _db.collection(FP.users()).doc(u.uid).get();
-        if (userDoc.exists) {
-          final data = userDoc.data()!;
-          roleStr = (data['role'] ?? 'waiter') as String;
-        }
-      } catch (_) {}
-
+      _profileLoaded = false;
+      // user tạm trong lúc chờ role
       _currentUser = AppUser(
         id: u.uid,
         email: u.email ?? '',
-        role: roleStr == 'admin'
-            ? UserRole.admin
-            : roleStr == 'chef'
-            ? UserRole.chef
-            : UserRole.waiter,
+        role: UserRole.waiter,
         password: '',
       );
+      notifyListeners();
+
+      try {
+        final doc = await _db
+            .collection(FP.users())
+            .doc(u.uid)
+            .get(); // <— ROOT
+        if (doc.exists) {
+          _currentUser = AppUser.fromDoc(u.uid, doc.data()!);
+        } else {
+          // nếu chưa có doc, giữ waiter
+          _currentUser = AppUser(
+            id: u.uid,
+            email: u.email ?? '',
+            role: UserRole.waiter,
+            password: '',
+          );
+        }
+      } catch (_) {
+        _currentUser = AppUser(
+          id: u.uid,
+          email: u.email ?? '',
+          role: UserRole.waiter,
+          password: '',
+        );
+      }
+
+      _profileLoaded = true;
       notifyListeners();
     });
 
@@ -117,10 +137,10 @@ class AppRepository extends ChangeNotifier {
         .collection(FP.tables(_rid))
         .orderBy('name')
         .snapshots()
-        .listen((snap) {
+        .listen((snap) {  
           _tables
             ..clear()
-            ..addAll(snap.docs.map((d) => TableModel.fromMap(d.id, d.data())));
+            ..addAll(snap.docs.map((d) => TableModel.fromMap(d.id,d.data())));
           if (_selectedTableId != null &&
               !_tables.any((t) => t.id == _selectedTableId)) {
             _selectedTableId = null;
@@ -182,6 +202,12 @@ class AppRepository extends ChangeNotifier {
   // ===================================================================
   Future<void> logout() async {
     await _auth.signOut();
+    _currentUser = null;
+    _profileLoaded = true;
+    _selectedTableId = null;
+    _activeOrderId = null;
+    _cart.clear();
+    notifyListeners();
   }
 
   // ===================================================================
@@ -206,6 +232,17 @@ class AppRepository extends ChangeNotifier {
       }
     } catch (_) {}
 
+    notifyListeners();
+  }
+
+  // Setters tiện dụng cho UI trước khi mở OrderScreen
+  void setSelectedTableId(String? id) {
+    _selectedTableId = id;
+    notifyListeners();
+  }
+
+  void setActiveOrderId(String? id) {
+    _activeOrderId = id;
     notifyListeners();
   }
 
@@ -487,18 +524,23 @@ class AppRepository extends ChangeNotifier {
     required DateTime to,
     required RevenueGroupBy groupBy,
   }) async {
-    final q = await _db
+    final q = await FirebaseFirestore.instance
         .collection(FP.orders(_rid))
         .where('status', isEqualTo: 'paid')
         .where('paidAt', isGreaterThanOrEqualTo: Timestamp.fromDate(from))
         .where('paidAt', isLessThan: Timestamp.fromDate(to))
+        .orderBy('paidAt', descending: true) 
         .get();
 
     final Map<DateTime, _Agg> buckets = {};
     for (final d in q.docs) {
       final m = d.data();
-      final total = (m['total'] ?? 0).toDouble();
-      final paidAt =
+
+      final double total = (m['total'] ?? 0) is num
+          ? (m['total'] as num).toDouble()
+          : double.tryParse('${m['total']}') ?? 0.0;
+
+      final DateTime? paidAt =
           (m['paidAt'] as Timestamp?)?.toDate() ??
           (m['updatedAt'] as Timestamp?)?.toDate();
       if (paidAt == null) continue;
@@ -514,13 +556,11 @@ class AppRepository extends ChangeNotifier {
 
     final keys = buckets.keys.toList()..sort();
     return keys
-        .map(
-          (k) => RevenuePoint(
-            bucket: k,
-            total: buckets[k]!.sum,
-            orders: buckets[k]!.count,
-          ),
-        )
+        .map((k) => RevenuePoint(
+              bucket: k,
+              total: buckets[k]!.sum,
+              orders: buckets[k]!.count,
+            ))
         .toList();
   }
 
@@ -555,6 +595,16 @@ class AppRepository extends ChangeNotifier {
     }
   }
 
+  Future<void> refreshUserRole() async {
+    final u = _auth.currentUser;
+    if (u == null) return;
+    final doc = await _db.collection(FP.users()).doc(u.uid).get();
+    if (doc.exists) {
+      _currentUser = AppUser.fromDoc(u.uid, doc.data()!);
+      notifyListeners();
+    }
+  }
+
   Future<void> seatTable(TableModel table, {int? covers}) async {
     final tableRef = _db.collection(FP.tables(_rid)).doc(table.id);
     await tableRef.update({
@@ -567,6 +617,130 @@ class AppRepository extends ChangeNotifier {
     // chưa có order => _activeOrderId vẫn null
     notifyListeners();
   }
+
+  // ==== MENU CRUD ====
+  Future<void> createMenuItem({
+    required String name,
+    required double price,
+    required String categoryId,
+    String? description,
+    String? image,
+  }) async {
+    final col = _db.collection(FP.menuItems(_rid));
+    await col.add({
+      'name': name,
+      'price': price,
+      'categoryId': categoryId,
+      'description': description,
+      'image': image,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateMenuItem(
+    String id, {
+    String? name,
+    double? price,
+    String? categoryId,
+    String? description,
+    String? image,
+  }) async {
+    final doc = _db.collection(FP.menuItems(_rid)).doc(id);
+    final data = <String, dynamic>{
+      if (name != null) 'name': name,
+      if (price != null) 'price': price,
+      if (categoryId != null) 'categoryId': categoryId,
+      if (description != null) 'description': description,
+      if (image != null) 'image': image,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    await doc.update(data);
+  }
+
+  Future<void> deleteMenuItem(String id) async {
+    await _db.collection(FP.menuItems(_rid)).doc(id).delete();
+  }
+
+  // ==== STAFF ====
+  Future<void> setUserRole(String uid, UserRole role) async {
+    await _db.collection(FP.users()).doc(uid).update({
+      'role': role.name,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+  Future<void> addOrUpdateItem({
+  required String restaurantId, // không dùng – đã có _rid
+  required String orderId,
+  required String menuItemId,
+  required String name,
+  required num price,
+  required int deltaQty, // +1 hoặc -1
+}) async {
+  final orderRef = _db.collection(FP.orders(_rid)).doc(orderId);
+  final itemRef  = _db.collection(FP.orderItems(_rid, orderId)).doc(menuItemId);
+
+  await _db.runTransaction((tx) async {
+    final itemSnap = await tx.get(itemRef);
+    final double unitPrice = price.toDouble();
+
+    int currentQty = 0;
+    if (itemSnap.exists) {
+      currentQty = (itemSnap.data()?['qty'] ?? 0) as int;
+    }
+
+    final int newQty = currentQty + deltaQty;
+
+    double appliedDeltaSubtotal = 0;
+    int appliedDeltaCount = 0;
+
+    if (newQty <= 0) {
+      if (itemSnap.exists) {
+        // xóa item ⇒ delta = -currentQty
+        appliedDeltaSubtotal = -currentQty * unitPrice;
+        appliedDeltaCount    = -currentQty;
+        tx.delete(itemRef);
+      } else {
+        // không có item mà lại delta -1 ⇒ bỏ qua
+        appliedDeltaSubtotal = 0;
+        appliedDeltaCount    = 0;
+      }
+    } else {
+      // tạo mới hoặc cập nhật: delta = newQty - currentQty
+      final int appliedDelta = newQty - currentQty;
+      appliedDeltaSubtotal = appliedDelta * unitPrice;
+      appliedDeltaCount    = appliedDelta;
+
+      if (!itemSnap.exists) {
+        tx.set(itemRef, {
+          'menuItemId': menuItemId,
+          'name': name,
+          'price': unitPrice,
+          'qty': newQty,
+          'note': '',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        tx.update(itemRef, {
+          'qty': newQty,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    // Cộng dồn về order – tránh phải đọc toàn bộ orderItems
+    if (appliedDeltaCount != 0) {
+      tx.update(orderRef, {
+        'subtotal': FieldValue.increment(appliedDeltaSubtotal),
+        'total':    FieldValue.increment(appliedDeltaSubtotal),
+        'itemsCount': FieldValue.increment(appliedDeltaCount),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  });
+}
+
 }
 
 class _Agg {

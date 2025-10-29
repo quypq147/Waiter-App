@@ -12,47 +12,88 @@ class OrderScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final repo = InheritedApp.of(context);
     final table = repo.selectedTable;
-    final orderId = repo.activeOrderId;
+    final restaurantId = repo.restaurantId;
+    final String? orderId = repo.activeOrderId;
+    void onInc(String menuItemId, String name, num price) {
+      final id = orderId;
+      if (id == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chưa có order đang mở')));
+        return;
+      }
+      repo.addOrUpdateItem(
+        restaurantId: restaurantId,
+        orderId: id,
+        menuItemId: menuItemId,
+        name: name,
+        price: price,
+        deltaQty: 1,
+      );
+    }
+
+    void onDec(String menuItemId, String name, num price) {
+      final id = orderId;
+      if (id == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Chưa có order đang mở')));
+        return;
+      }
+      repo.addOrUpdateItem(
+        restaurantId: restaurantId,
+        orderId: id,
+        menuItemId: menuItemId,
+        name: name,
+        price: price,
+        deltaQty: -1,
+      );
+    }
 
     return Scaffold(
       drawer: const AppDrawer(),
       appBar: AppBar(
         title: Text(
-          (table == null || orderId == null)
+          (table == null)
               ? 'Đơn hàng'
-              : 'Bàn ${table.name} • #${orderId.length >= 6 ? orderId.substring(0, 6) : orderId}',
+              : (orderId == null)
+                  ? table.name
+                  : '${table.name} • #${orderId.length >= 6 ? orderId.substring(0, 6) : orderId}',
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
           IconButton(
             tooltip: 'Thêm món',
             icon: const Icon(Icons.add_shopping_cart),
-            onPressed: (table == null || orderId == null)
+            onPressed: (table == null)
                 ? null
                 : () => Navigator.pushReplacementNamed(context, '/menu'),
           ),
         ],
-      ),
+      ),  
       body: (table == null || orderId == null)
           ? const Center(child: Text('Chưa có bàn hoặc chưa có order đang mở'))
-          : _OrderDetail(orderId: orderId),
+          : _OrderDetail(
+              orderId: orderId,
+              restaurantId: restaurantId, // <-- pass repo rid
+            ),
     );
   }
 }
 
 class _OrderDetail extends StatelessWidget {
   final String orderId;
-  const _OrderDetail({required this.orderId});
+  final String restaurantId; // <-- add this
+  const _OrderDetail({required this.orderId, required this.restaurantId});
 
   @override
   Widget build(BuildContext context) {
-    const rid = 'default_restaurant'; // TODO: lấy từ repo nếu có
+    
+    final repo = InheritedApp.of(context);
+    final restaurantId = repo.restaurantId;
 
-    final orderRef =
-        FirebaseFirestore.instance.collection(FP.orders(rid)).doc(orderId);
+    final orderRef = FirebaseFirestore.instance
+        .collection(FP.orders(restaurantId))
+        .doc(orderId);
 
     final itemsRef = FirebaseFirestore.instance
-        .collection(FP.orderItems(rid, orderId))
+        .collection(FP.orderItems(restaurantId, orderId))
         .orderBy('createdAt', descending: false);
 
     return SafeArea(
@@ -66,7 +107,8 @@ class _OrderDetail extends StatelessWidget {
               final status = (od['status'] ?? 'open') as String;
               final subtotal = (od['subtotal'] ?? 0).toDouble();
               final total = (od['total'] ?? 0).toDouble();
-              final itemsCount = (od['itemsCount'] ?? 0) as int;
+              int _asInt(dynamic v) => v is num ? v.toInt() : int.tryParse(v?.toString() ?? '') ?? 0;
+              final itemsCount = _asInt(od['itemsCount']);
 
               return Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
@@ -105,17 +147,22 @@ class _OrderDetail extends StatelessWidget {
                     final it = docs[i].data();
                     final name = (it['name'] ?? '') as String;
                     final price = (it['price'] ?? 0).toDouble();
-                    final qty = (it['qty'] ?? 0) as int;
+                    int _asInt(dynamic v) => v is num ? v.toInt() : int.tryParse(v?.toString() ?? '') ?? 0;
+                    final qty = _asInt(it['qty']);
                     final note = (it['note'] ?? '') as String;
 
                     return Card(
                       child: ListTile(
-                        leading: const CircleAvatar(child: Icon(Icons.restaurant)),
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.restaurant),
+                        ),
                         title: Text(name, overflow: TextOverflow.ellipsis),
-                        subtitle: Text([
-                          '${_vnd(price)} x $qty = ${_vnd(price * qty)}',
-                          if (note.isNotEmpty) 'Ghi chú: $note',
-                        ].join('\n')),
+                        subtitle: Text(
+                          [
+                            '${_vnd(price)} x $qty = ${_vnd(price * qty)}',
+                            if (note.isNotEmpty) 'Ghi chú: $note',
+                          ].join('\n'),
+                        ),
                         isThreeLine: note.isNotEmpty,
                         trailing: PopupMenuButton<String>(
                           onSelected: (v) {
@@ -130,12 +177,23 @@ class _OrderDetail extends StatelessWidget {
                                 currentNote: note,
                               );
                             } else if (v == 'delete') {
-                              _deleteOrderItem(context, orderId: orderId, itemId: id, name: name);
+                              _deleteOrderItem(
+                                context,
+                                orderId: orderId,
+                                itemId: id,
+                                name: name,
+                              );
                             }
                           },
                           itemBuilder: (_) => const [
-                            PopupMenuItem(value: 'edit', child: Text('Sửa món/ghi chú')),
-                            PopupMenuItem(value: 'delete', child: Text('Xoá món')),
+                            PopupMenuItem(
+                              value: 'edit',
+                              child: Text('Sửa món/ghi chú'),
+                            ),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Xoá món'),
+                            ),
                           ],
                         ),
                       ),
@@ -162,7 +220,9 @@ class _OrderActions extends StatelessWidget {
     final repo = InheritedApp.of(context);
     return Padding(
       padding: EdgeInsets.only(
-        left: 12, right: 12, top: 12,
+        left: 12,
+        right: 12,
+        top: 12,
         bottom: 12 + MediaQuery.viewPaddingOf(context).bottom,
       ),
       child: Wrap(
@@ -178,7 +238,8 @@ class _OrderActions extends StatelessWidget {
               OutlinedButton.icon(
                 icon: const Icon(Icons.swap_horiz),
                 label: const Text('Chuyển bàn'),
-                onPressed: () => _showTransferTableSheet(context, orderId: orderId),
+                onPressed: () =>
+                    _showTransferTableSheet(context, orderId: orderId),
               ),
               TextButton.icon(
                 icon: const Icon(Icons.cancel),
@@ -189,8 +250,14 @@ class _OrderActions extends StatelessWidget {
                     builder: (_) => AlertDialog(
                       content: const Text('Huỷ order hiện tại và trả bàn?'),
                       actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Không')),
-                        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Có')),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Không'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Có'),
+                        ),
                       ],
                     ),
                   );
@@ -216,7 +283,9 @@ class _OrderActions extends StatelessWidget {
                   await repo.requestBill();
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Đã chuyển trạng thái: chờ thanh toán')),
+                    const SnackBar(
+                      content: Text('Đã chuyển trạng thái: chờ thanh toán'),
+                    ),
                   );
                 },
               ),
@@ -257,7 +326,9 @@ Future<void> _showEditOrderItemSheet(
     builder: (_) {
       return Padding(
         padding: EdgeInsets.only(
-          left: 16, right: 16, top: 8,
+          left: 16,
+          right: 16,
+          top: 8,
           bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
         ),
         child: SingleChildScrollView(
@@ -265,7 +336,13 @@ Future<void> _showEditOrderItemSheet(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Sửa món', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+              Text(
+                'Sửa món',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(height: 8),
               Text(name, style: const TextStyle(fontWeight: FontWeight.w500)),
               const SizedBox(height: 12),
@@ -273,29 +350,43 @@ Future<void> _showEditOrderItemSheet(
                 controller: qtyCtl,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Số lượng', isDense: true, border: OutlineInputBorder()),
+                  labelText: 'Số lượng',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: noteCtl,
-                minLines: 2, maxLines: 5,
+                minLines: 2,
+                maxLines: 5,
                 decoration: const InputDecoration(
-                  labelText: 'Ghi chú (tuỳ chọn)', isDense: true, border: OutlineInputBorder()),
+                  labelText: 'Ghi chú (tuỳ chọn)',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Đóng')),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Đóng'),
+                  ),
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
                     icon: const Icon(Icons.save),
                     label: const Text('Lưu'),
                     onPressed: () async {
-                      final qty = int.tryParse(qtyCtl.text.trim()) ?? currentQty;
+                      final qty =
+                          int.tryParse(qtyCtl.text.trim()) ?? currentQty;
                       final note = noteCtl.text.trim();
                       if (qty <= 0) {
-                        await repo.removeOrderItem(orderId: orderId, itemId: itemId);
+                        await repo.removeOrderItem(
+                          orderId: orderId,
+                          itemId: itemId,
+                        );
                       } else {
                         await repo.updateOrderItem(
                           orderId: orderId,
@@ -320,7 +411,7 @@ Future<void> _showEditOrderItemSheet(
                   'Thành tiền mới: ${_vnd(unitPrice * (int.tryParse(qtyCtl.text) ?? currentQty))}',
                   style: const TextStyle(color: Colors.black54),
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -341,19 +432,30 @@ Future<void> _deleteOrderItem(
     builder: (_) => AlertDialog(
       content: Text('Xoá "$name" khỏi order?'),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Huỷ')),
-        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Xoá')),
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Huỷ'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Xoá'),
+        ),
       ],
     ),
   );
   if (ok == true) {
     await repo.removeOrderItem(orderId: orderId, itemId: itemId);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xoá món')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Đã xoá món')));
   }
 }
 
-Future<void> _showTransferTableSheet(BuildContext context, {required String orderId}) async {
+Future<void> _showTransferTableSheet(
+  BuildContext context, {
+  required String orderId,
+}) async {
   final repo = InheritedApp.of(context);
   final tables = repo.tables
       .where((t) => t.state == TableState.vacant) // chỉ bàn trống
@@ -384,8 +486,9 @@ Future<void> _showTransferTableSheet(BuildContext context, {required String orde
                 Navigator.pop(context);
                 await repo.transferTable(orderId: orderId, toTableId: t.id);
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(SnackBar(content: Text('Đã chuyển sang ${t.name}')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Đã chuyển sang ${t.name}')),
+                );
               },
             );
           },
@@ -443,5 +546,10 @@ String _vnd(double v) {
   }
   return '$b đ';
 }
+
+
+
+
+
 
 
