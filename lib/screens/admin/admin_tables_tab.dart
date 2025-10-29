@@ -156,8 +156,9 @@ Future<void> _deleteTable(BuildContext context, TableModel t) async {
   );
   if (ok != true) return;
 
-  const rid = 'default_restaurant';
-  await FirebaseFirestore.instance.collection(FP.tables(rid)).doc(t.id).delete();
+  final repo = InheritedApp.of(context);
+  final col  = FirebaseFirestore.instance.collection(FP.tables(repo.restaurantId));
+  await col.doc(t.id).delete();
   if (!context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã xoá ${t.name}')));
 }
@@ -214,8 +215,8 @@ Future<void> _showTableForm(BuildContext context, {TableModel? existing}) async 
                         return;
                       }
 
-                      const rid = 'default_restaurant';
-                      final col = FirebaseFirestore.instance.collection(FP.tables(rid));
+                      final repo = InheritedApp.of(context);
+                      final col  = FirebaseFirestore.instance.collection(FP.tables(repo.restaurantId));
 
                       if (existing == null) {
                         await col.add({

@@ -1,103 +1,70 @@
 import 'package:meta/meta.dart';
 
-enum TableState {
-  vacant,    // trống
-  occupied,  // đang phục vụ (đã seat)
-  billed,    // đã xin tính tiền
-  cleaning,  // đang dọn
-  reserved,  // đã đặt trước
-}
+enum TableState { vacant, occupied, billed, cleaning, reserved }
 
 @immutable
 class TableModel {
   final String id;
   final String name;
   final int capacity;
-  final bool isAvailable;
-  final String? currentOrderId;
   final TableState state;
+  final String? currentOrderId;
+  final bool isAvailable; // giữ để tương thích UI cũ nếu bạn đã dùng
 
   const TableModel({
     required this.id,
     required this.name,
     required this.capacity,
-    required this.isAvailable,
-    required this.currentOrderId,
     required this.state,
+    this.currentOrderId,
+    this.isAvailable = true,
   });
 
-  TableModel copyWith({
-    String? id,
-    String? name,
-    int? capacity,
-    bool? isAvailable,
-    String? currentOrderId,
-    TableState? state,
-  }) {
-    return TableModel(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      capacity: capacity ?? this.capacity,
-      isAvailable: isAvailable ?? this.isAvailable,
-      currentOrderId: currentOrderId ?? this.currentOrderId,
-      state: state ?? this.state,
-    );
-  }
+  factory TableModel.fromMap(String id, Map<String, dynamic> data) {
+  // state có thể là string ('vacant',...) hoặc kiểu khác => ép về string-lower
+  final raw = (data['state']?.toString() ?? 'vacant').toLowerCase();
 
-  static TableState _parseState(String? s) {
-    switch ((s ?? '').toLowerCase()) {
-      case 'occupied':
-        return TableState.occupied;
-      case 'billed':
-        return TableState.billed;
-      case 'cleaning':
-        return TableState.cleaning;
-      case 'reserved':
-        return TableState.reserved;
-      case 'vacant':
-      default:
-        return TableState.vacant;
+  TableState parseState(String s) {
+    switch (s) {
+      case 'occupied': return TableState.occupied;
+      case 'billed':   return TableState.billed;
+      case 'cleaning': return TableState.cleaning;
+      case 'reserved': return TableState.reserved;
+      default:         return TableState.vacant;
     }
   }
 
-  static String stateToString(TableState st) {
-    switch (st) {
-      case TableState.occupied:
-        return 'occupied';
-      case TableState.billed:
-        return 'billed';
-      case TableState.cleaning:
-        return 'cleaning';
-      case TableState.reserved:
-        return 'reserved';
-      case TableState.vacant:
-      return 'vacant';
-    }
+  // capacity có thể là int/double/chuỗi => ép an toàn về int
+  int toInt(dynamic v) {
+    if (v is num) return v.toInt();
+    return int.tryParse(v?.toString() ?? '') ?? 0;
   }
 
-  factory TableModel.fromMap(String id, Map<String, dynamic>? map) {
-    final data = map ?? const {};
-    return TableModel(
-      id: id,
-      name: (data['name'] ?? '') as String,
-      capacity: (data['capacity'] ?? 0) as int,
-      isAvailable: (data['isAvailable'] ?? true) as bool,
-      currentOrderId: data['currentOrderId'] as String?,
-      state: _parseState(data['state'] as String?),
-    );
-  }
+  final state = parseState(raw);
+
+  return TableModel(
+    id: id,
+    name: (data['name']?.toString() ?? ''),
+    capacity: toInt(data['capacity']),
+    state: state,
+    currentOrderId: data['currentOrderId']?.toString(),
+    isAvailable: state == TableState.vacant,
+  );
+}
+
 
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'name': name,
       'capacity': capacity,
-      'isAvailable': isAvailable,
+      'state': state.name,
       'currentOrderId': currentOrderId,
-      'state': stateToString(state),
-      'updatedAt': DateTime.now(),
     };
   }
 }
+
+
 
 
 

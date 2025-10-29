@@ -1,7 +1,7 @@
 /// Chuẩn hoá mọi đường dẫn sử dụng trong Firestore.
 /// Dùng dạng class + static method để tránh lỗi "undefined_function" và lỗi lint prefix.
 class FP {
-  static String users() => 'restaurants/users';
+  static String users() => 'users';
   // Top-level collections
   static String restaurants() => 'restaurants';
 
