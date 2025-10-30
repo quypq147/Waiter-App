@@ -107,8 +107,8 @@ class _OrderDetail extends StatelessWidget {
               final status = (od['status'] ?? 'open') as String;
               final subtotal = (od['subtotal'] ?? 0).toDouble();
               final total = (od['total'] ?? 0).toDouble();
-              int _asInt(dynamic v) => v is num ? v.toInt() : int.tryParse(v?.toString() ?? '') ?? 0;
-              final itemsCount = _asInt(od['itemsCount']);
+              int asInt(dynamic v) => v is num ? v.toInt() : int.tryParse(v?.toString() ?? '') ?? 0;
+              final itemsCount = asInt(od['itemsCount']);
 
               return Padding(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
@@ -147,8 +147,8 @@ class _OrderDetail extends StatelessWidget {
                     final it = docs[i].data();
                     final name = (it['name'] ?? '') as String;
                     final price = (it['price'] ?? 0).toDouble();
-                    int _asInt(dynamic v) => v is num ? v.toInt() : int.tryParse(v?.toString() ?? '') ?? 0;
-                    final qty = _asInt(it['qty']);
+                    int asInt(dynamic v) => v is num ? v.toInt() : int.tryParse(v?.toString() ?? '') ?? 0;
+                    final qty = asInt(it['qty']);
                     final note = (it['note'] ?? '') as String;
 
                     return Card(
