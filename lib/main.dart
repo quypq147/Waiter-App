@@ -13,6 +13,7 @@ import 'screens/admin/admin_dashboard.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'screens/order/orders_list_screen.dart';
+import 'screens/order/order_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +44,7 @@ class WaiterApp extends StatelessWidget {
         '/menu': (_) => const MenuScreen(),
         '/cart': (_) => const CartScreen(),
         '/order': (_) => const OrdersListScreen(),
+        '/order_detail': (_) => const OrderScreen(),
         '/success': (_) => const OrderSuccessScreen(),
         '/admin': (_) => const AdminDashboard(),
       },

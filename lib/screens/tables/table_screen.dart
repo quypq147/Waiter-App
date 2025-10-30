@@ -144,7 +144,7 @@ class _TableCard extends StatelessWidget {
                     label: const Flexible(child: Text('Xem order', overflow: TextOverflow.ellipsis)),
                     onPressed: () {
                       repo.selectTable(t);
-                      Navigator.pushNamed(context, '/order'); // nhớ khai báo route
+                      Navigator.pushNamed(context, '/order_detail'); // nhớ khai báo route
                     },
                   ),
                 if (t.state == TableState.occupied)
